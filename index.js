@@ -1,17 +1,31 @@
 import fs from 'fs';
 import path from 'path';
 import util from 'util';
+import dotenv from 'dotenv'
+
+dotenv.config();
 
 import { readCsv } from './csv.js';
+
+const shop = process.env.shop;
+const access_token = process.env.access_token;
 
 const writeFile = util.promisify(fs.writeFile);
 
 const getDatas = async(filename) => {
-    const { results } = await readCsv('term.csv');
-    return results;
+    const { results } = await readCsv(filename);
+    return results.map(row => {
+        const { SCENT, SCENT1, 'RRP (USD)': rrpUSD, ...rest } = row;
+        return {
+            ...rest,
+            SCENT: [SCENT, SCENT1].filter(Boolean).join(','),
+            'RRP (USD)': JSON.stringify({
+                amount: parseInt(rrpUSD.replace('£','')),
+                currency_code: "USD"
+            })
+        };
+    });
 }
-
-const access_token = process.env.access_token;
 
 export const writeJson = async (fileName, jsonData) => {
     const jsonString = JSON.stringify(jsonData);
@@ -45,22 +59,26 @@ export const graphqlRequest = async(body) => {
     return await result.json();
 }
 
-export const getAllProducts = async () => {
+export const getSimilarProducts = async (title) => {
     const body = JSON.stringify({
         query: `
-            query getAllProducts {
-                products(first: 250) {
+            query getSimilarProducts($query: String!) {
+                products(first:3, query:$query ) {
                     nodes {
                         id
-                        templateSuffix
+                        title
+                        handle
                     }
                 }
-            }`
+            }`,
+        variables: {
+            query: handlize(title)
+        }
     });
 
     const response = await graphqlRequest(body);
 
-    console.log(response);
+    console.log(response.data.products.nodes[0], title);
     return response.data.products.nodes;
 }
 
@@ -106,11 +124,72 @@ export const procesMetafields = async metafields => {
     return results;
 }
 
-console.log(access_token);
+const metafieldsKey = {
+    'SCENT': 'scent',
+    'Primary Notes': 'primary_note',
+    'Middle Notes': 'middle_notes',
+    'Base Notes': 'base_notes',
+    'RRP (USD)': 'rrp_100ml_'
+}
+
+const metafieldsType = {
+    'SCENT': 'single_line_text_field',
+    'Primary Notes': 'single_line_text_field',
+    'Middle Notes': 'single_line_text_field',
+    'Base Notes': 'single_line_text_field',
+    'RRP (USD)': 'money'
+}
+
+const makeMetafields = (ownerId, productInfo) => {
+    const metafields = [];
+    for (const key in productInfo) {
+        metafields.push({
+            ownerId,
+            namespace: "custom",
+            key: metafieldsKey[key],
+            type: metafieldsType[key],
+            value: productInfo[key]
+        })
+    }
+    return metafields;
+}
+
+const handlize = (str) => {
+    return str.toLowerCase().replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$|-(?=-)/g, '');
+}
 
 const main = async () => {
     const productInfos = await getDatas('products.csv');
-    console.log(productInfos[0])
+    const products = [];
+    const allMetafields = [];
+    const excetionProducts = [];
+
+    for (const productInfo of productInfos) {
+        const similarProducts = await getSimilarProducts(productInfo['Product Name']);
+        if(similarProducts.length) {
+            const product = similarProducts.find(product => {
+                return product.title == productInfo['Product Name'] || product.handle == handlize(productInfo['Product Name']);
+            });
+            if(product) {
+                products.push(product);
+                const metafields = makeMetafields(product.id, productInfo);
+                allMetafields.push(...metafields);
+            } else {
+                excetionProducts.push(productInfo);
+            }
+        } else {
+            excetionProducts.push(productInfo);
+        }
+    }
+    // procesMetafields(metafields);
+    console.log(productInfos[6]);
+
+    await writeJson('products.json', products);
+    await writeJson('exceptionProducts.json', excetionProducts);
+    await writeJson('metafields.json', allMetafields);
+
+    const metafieldUpdates = await procesMetafields(allMetafields);
+    await writeJson('metafieldUpdates.json', metafieldUpdates);
 }
 
-main()
+main();
