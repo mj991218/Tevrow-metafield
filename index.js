@@ -16,14 +16,21 @@ const getDatas = async(filename) => {
     const { results } = await readCsv(filename);
     return results.map(row => {
         const { SCENT, SCENT1, 'RRP (USD)': rrpUSD, ...rest } = row;
-        return {
-            ...rest,
-            SCENT: [SCENT, SCENT1].filter(Boolean).join(','),
-            'RRP (USD)': JSON.stringify({
-                amount: parseInt(rrpUSD.replace('£','')),
-                currency_code: "USD"
-            })
-        };
+        if(parseInt(rrpUSD.replace('£',''))) {
+            return {
+                ...rest,
+                SCENT: [SCENT, SCENT1].filter(Boolean).join(','),
+                'RRP (USD)': JSON.stringify({
+                    amount: parseInt(rrpUSD.replace('£','')),
+                    currency_code: "USD"
+                })
+            };
+        } else {
+            return {
+                ...rest,
+                SCENT: [SCENT, SCENT1].filter(Boolean).join(',')
+            };
+        }
     });
 }
 
@@ -143,13 +150,15 @@ const metafieldsType = {
 const makeMetafields = (ownerId, productInfo) => {
     const metafields = [];
     for (const key in productInfo) {
-        metafields.push({
-            ownerId,
-            namespace: "custom",
-            key: metafieldsKey[key],
-            type: metafieldsType[key],
-            value: productInfo[key]
-        })
+        if(key !== 'Product Name' && key !== 'RRP (100ML)') {
+            metafields.push({
+                ownerId: ownerId,
+                namespace: "custom",
+                key: metafieldsKey[key],
+                type: metafieldsType[key],
+                value: productInfo[key]
+            })
+        }
     }
     return metafields;
 }
@@ -168,7 +177,7 @@ const main = async () => {
         const similarProducts = await getSimilarProducts(productInfo['Product Name']);
         if(similarProducts.length) {
             const product = similarProducts.find(product => {
-                return product.title == productInfo['Product Name'] || product.handle == handlize(productInfo['Product Name']);
+                return product.title.toLowerCase() == productInfo['Product Name'].toLowerCase() || product.handle == handlize(productInfo['Product Name']);
             });
             if(product) {
                 products.push(product);
@@ -181,8 +190,7 @@ const main = async () => {
             excetionProducts.push(productInfo);
         }
     }
-    // procesMetafields(metafields);
-    console.log(productInfos[6]);
+    
 
     await writeJson('products.json', products);
     await writeJson('exceptionProducts.json', excetionProducts);
