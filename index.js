@@ -70,7 +70,7 @@ export const getSimilarProducts = async (title) => {
     const body = JSON.stringify({
         query: `
             query getSimilarProducts($query: String!) {
-                products(first:3, query:$query ) {
+                products(first:10, query:$query ) {
                     nodes {
                         id
                         title
@@ -150,7 +150,7 @@ const metafieldsType = {
 const makeMetafields = (ownerId, productInfo) => {
     const metafields = [];
     for (const key in productInfo) {
-        if(key !== 'Product Name' && key !== 'RRP (100ML)') {
+        if(key !== 'Product Name' && key !== 'RRP (100ML)' && productInfo[key]) {
             metafields.push({
                 ownerId: ownerId,
                 namespace: "custom",
@@ -164,7 +164,7 @@ const makeMetafields = (ownerId, productInfo) => {
 }
 
 const handlize = (str) => {
-    return str.toLowerCase().replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$|-(?=-)/g, '');
+    return str.toLowerCase().replace("'", '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$|-(?=-)/g, '');
 }
 
 const main = async () => {
